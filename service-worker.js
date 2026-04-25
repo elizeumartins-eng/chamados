@@ -8,7 +8,16 @@ const FILES_TO_CACHE = [
   "./style.css",
   "./app.js"
 ];
+self.addEventListener("fetch", (event) => {
+  const url = new URL(event.request.url);
 
+  if (url.hostname.includes("supabase") || url.hostname.includes("firebase")) {
+    event.respondWith(fetch(event.request)); // sem cache
+    return;
+  }
+
+  // resto pode cachear (se quiser)
+});
 // =========================
 // INSTALL (cache inicial)
 // =========================
