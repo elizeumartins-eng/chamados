@@ -1,102 +1,71 @@
-const CACHE_VERSION = "eng-elizeu-v14";
-
+const CACHE_VERSION = "eng-elizeu-v15";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
-const FILES_TO_CACHE = [
-  "./",
-  "./index.html",
-  "./style.css",
-  "./app.js"
-];
-self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
-
-  if (url.hostname.includes("supabase") || url.hostname.includes("firebase")) {
-    event.respondWith(fetch(event.request)); // sem cache
-    return;
-  }
-
-  // resto pode cachear (se quiser)
-});
 // =========================
-// INSTALL (cache inicial)
+// INSTALL (sem cache pesado)
 // =========================
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(STATIC_CACHE).then((cache) => {
-      return cache.addAll(FILES_TO_CACHE);
-    })
-  );
-
-  // 🔥 força ativação imediata
   self.skipWaiting();
 });
 
 // =========================
-// ACTIVATE (limpa lixo antigo)
+// ACTIVATE (limpa tudo antigo)
 // =========================
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(
-        keys.map((key) => {
-          if (!key.includes(CACHE_VERSION)) {
-            return caches.delete(key);
-          }
-        })
-      )
+      Promise.all(keys.map((key) => caches.delete(key)))
     )
   );
-
-  // 🔥 assume controle de todas abas
   self.clients.claim();
 });
 
 // =========================
-// FETCH STRATEGY INTELIGENTE
+// FETCH (sem cache para sistema)
 // =========================
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
-  // ❌ IGNORA FIREBASE / API / ONE SIGNAL (NUNCA CACHEIA)
+  // ❌ nunca cacheia APIs / serviços
   if (
     url.hostname.includes("firebase") ||
     url.hostname.includes("firestore") ||
     url.hostname.includes("googleapis") ||
     url.hostname.includes("onesignal") ||
-    url.hostname.includes("cloudinary")
+    url.hostname.includes("supabase")
   ) {
     event.respondWith(fetch(req));
     return;
   }
 
-  // 🔥 HTML -> NETWORK FIRST (sempre atual)
-  if (req.mode === "navigate") {
+  // 🔥 HTML / JS / CSS → sempre da rede
+  if (
+    req.destination === "document" ||
+    req.destination === "script" ||
+    req.destination === "style"
+  ) {
+    event.respondWith(fetch(req));
+    return;
+  }
+
+  // 🔥 imagens (opcional cache leve)
+  if (req.destination === "image") {
     event.respondWith(
-      fetch(req)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(STATIC_CACHE).then((cache) => cache.put(req, copy));
-          return res;
-        })
-        .catch(() => caches.match("./index.html"))
+      caches.match(req).then((cached) => {
+        return (
+          cached ||
+          fetch(req).then((res) => {
+            const copy = res.clone();
+            caches.open(STATIC_CACHE).then((cache) => cache.put(req, copy));
+            return res;
+          })
+        );
+      })
     );
     return;
   }
 
-  // 🔥 JS / CSS / IMAGEM -> CACHE FIRST COM UPDATE
-  event.respondWith(
-    caches.match(req).then((cached) => {
-      const networkFetch = fetch(req)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(STATIC_CACHE).then((cache) => cache.put(req, copy));
-          return res;
-        })
-        .catch(() => cached);
-
-      return cached || networkFetch;
-    })
-  );
+  // fallback
+  event.respondWith(fetch(req));
 });
